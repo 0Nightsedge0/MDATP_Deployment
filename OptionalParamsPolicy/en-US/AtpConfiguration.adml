@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitionResources xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" revision="1.0" schemaVersion="1.0" xmlns="http://www.microsoft.com/GroupPolicy/PolicyDefinitions">
+  <displayName>SENSE client configuration</displayName>
+  <description>Optional configuration of SENSE client</description>
+  <resources>
+    <stringTable>
+      <string id="SENSE">Windows Defender ATP</string>
+      <string id="SENSEHELP">Windows Defender ATP</string>
+      <string id="Sample_Sharing_Checkbox">Enable\Disable Sample collection</string>
+      <string id="Sample_Sharing_Checkbox_Help">
+        This policy allows you to enable\disable the sample collection option of Windows Defender ATP client.
+
+        If you set this option, all machines that are part of this GPO will send samples on demand to Windows Defender ATP Cloud services.
+      </string>
+      <string id="Force_Defender_Passive_Mode_Checkbox">Turn on Windows Defender AV passive mode</string>
+      <string id="Force_Defender_Passive_Mode_Checkbox_Help">
+        Use this policy setting to specify if you want Windows Defender Antivirus to turn on passive mode.
+
+        If you disable this setting or do not configure this setting, Windows Defender Antivirus will run in active mode.
+
+        If you enable this setting, Windows Defender Antivirus will continue to receive updates, and the mspeng.exe process will be listed as a running service but will not perform scans or replace the running third-party antimalware client.
+      </string>
+      <string id="Latency_Dropdown_First">Normal mode</string>
+      <string id="Latency_Dropdown_Second">Expedite mode</string>
+      <string id="Latency_Dropdown">Set client latency mode</string>
+      <string id="Latency_Dropdown_Help">
+        This policy allows you to choose between Normal and Expedite latency modes of Windows Defender ATP client.
+
+        Normal is the default value. If you choose Expedite mode, data will be sent from the machine in higher frequencies, which could affect the machine's performance.
+      </string>
+  </stringTable>
+    <presentationTable>
+      <presentation id="Sample_Sharing_Checkbox">
+        <checkBox refId="Checkbox" defaultChecked="true">Enable sample collection on machines.</checkBox>
+      </presentation>
+      <presentation id="Latency_Dropdown">
+        <dropdownList refId="Latency_Dropdown_List" defaultItem="1">Choose mode</dropdownList>
+      </presentation>
+    </presentationTable>
+  </resources>
+</policyDefinitionResources>

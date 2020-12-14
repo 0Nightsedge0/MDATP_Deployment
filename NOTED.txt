@@ -1,0 +1,3 @@
+powershell.exe
+
+-executionpolicy bypass -File "\\Mdatp-dc08r2\mdatp\MDATP_deploy_all_in_one\MDATP_Onboarding_POC_All_in_One_v1.2_9Dec2020.ps1"

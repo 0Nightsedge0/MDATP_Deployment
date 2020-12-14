@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitions xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" revision="1.0" schemaVersion="1.0" xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <policyNamespaces>
+    <target prefix="senseconfig" namespace="Microsoft.Policies.SenseConfig" />
+    <using prefix="windows" namespace="Microsoft.Policies.Windows" />
+  </policyNamespaces>
+  <resources minRequiredRevision="1.0" />
+  <categories>
+    <category name="SENSE" displayName="$(string.SENSE)" explainText="$(string.SENSEHELP)" >
+      <parentCategory ref="windows:WindowsComponents" />
+    </category>
+  </categories>
+  <policies>
+    <policy name="Sample_Sharing_Checkbox" class="Machine" displayName="$(string.Sample_Sharing_Checkbox)" explainText="$(string.Sample_Sharing_Checkbox_Help)" presentation="$(presentation.Sample_Sharing_Checkbox)" key="SOFTWARE\Policies\Microsoft\Windows Advanced Threat Protection">
+      <parentCategory ref="SENSE" />
+      <supportedOn ref="windows:SUPPORTED_ProductOnly" />
+      <elements>
+        <boolean id="Checkbox" valueName="AllowSampleCollection">
+          <trueValue>
+            <decimal value="1" />
+          </trueValue>
+          <falseValue>
+            <decimal value="0" />
+          </falseValue>
+        </boolean>
+      </elements>
+    </policy>
+    <policy name="Latency_Dropdown" class="Machine" displayName="$(string.Latency_Dropdown)" explainText="$(string.Latency_Dropdown_Help)" presentation="$(presentation.Latency_Dropdown)" key="SOFTWARE\Policies\Microsoft\Windows Advanced Threat Protection">
+      <parentCategory ref="SENSE" />
+      <supportedOn ref="windows:SUPPORTED_ProductOnly" />
+      <elements>
+        <enum id="Latency_Dropdown_List"
+        valueName="latency" required="true">
+          <item displayName="$(string.Latency_Dropdown_First)">
+            <value>
+              <string>Normal</string>
+            </value>
+          </item>
+          <item displayName="$(string.Latency_Dropdown_Second)">
+            <value>
+              <string>Expedite</string>
+            </value>
+          </item>
+        </enum>
+      </elements>
+    </policy>
+    <policy name="Force_Defender_Passive_Mode_Checkbox" class="Machine" displayName="$(string.Force_Defender_Passive_Mode_Checkbox)" explainText="$(string.Force_Defender_Passive_Mode_Checkbox_Help)" key="SOFTWARE\Policies\Microsoft\Windows Advanced Threat Protection" valueName="ForceDefenderPassiveMode">
+      <parentCategory ref="SENSE" />
+      <supportedOn ref="windows:SUPPORTED_ProductOnly" />
+      <enabledValue>
+		<decimal value="1" />
+      </enabledValue>
+      <disabledValue>
+        <decimal value="0" />
+      </disabledValue>
+    </policy>
+  </policies>
+</policyDefinitions>

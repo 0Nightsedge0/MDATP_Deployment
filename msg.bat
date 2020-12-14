@@ -1,0 +1,1 @@
+msg * "Microsoft Defender Advanced Threat Protection installed, Please reboot the machine!"
