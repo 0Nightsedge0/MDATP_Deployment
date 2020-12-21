@@ -1,8 +1,8 @@
 ####################################################################################################################
 #
 # MDATP deployment script POC
-# Version: V1.2
-# Last Edited: 10 Dec 2020
+# Version: V1.3
+# Last Edited: 21 Dec 2020
 # Tested on: Windows 10, Windows Server 2016, 08r2, 12r2, 2012
 # 64bit only!
 # Warning: it is just a POC script, please edit for your environment before your apply it!
@@ -37,10 +37,10 @@ Param(
     # MDATP install log folder
     [Parameter(Mandatory = $false)]
     [String]
-    $Log_folder = "deployment_logs",
+    $Log_folder = "\\MDATP-DC08R2\MDATP_logs\deployment_logs",
 
     # **** important to edit ****
-    # Share drive path
+    # Share drive path - for scripts
     [Parameter(Mandatory = $false)]
     [String]
     $Share_drive_path = "\\Mdatp-dc08r2\mdatp\MDATP_deploy_all_in_one\",
@@ -245,6 +245,7 @@ $global:Test_Detection_Script_Path = $Scriptdir + $Test_Detection_Script_Path
 #
 ####################################################################################################################
 
+
 ## Write Log Function
 Function Write-Log {
     [CmdletBinding()]
@@ -289,38 +290,64 @@ Function Write-Log {
 
 ## Check-Windows-Version
 Function Check-Windows-Version($check_os){
+    $status = "" | Select-Object -Property code, msg
+    $status.code = "SUCCESS"
+
     if ($check_os -like "*Windows 10*"){
 		Write-Log "[*] Windows 10 Detected"
-        return "Windows 10"
+        $status.msg = "Windows 10"
 
     } elseif ($check_os -like "*Windows Server 2019*") {
 		Write-Log "[*] Windows 2019 Detected"
-        return "Windows 2019"
+        $status.msg = "Windows 2019"
 
     } elseif ($check_os -like "*Windows Server 2016*") {
     	Write-Log "[*] Windows 2016 Detected"
-        return "Windows 2016"
+        $status.msg = "Windows 2016"
 
     } elseif ($check_os -like "*Windows Server 2012 R2*") {
         Write-Log "[*] Windows 2012 R2 Detected"
-        return "Windows 2012 R2"
+        $status.msg = "Windows 2012 R2"
 
     } elseif ($check_os -like "*Windows Server 2012*") {
         Write-Log "[*] Windows 2012 Detected"
-        return "Windows 2012"
+        $status.msg = "Windows 2012"
 
     } elseif ($check_os -like "*Windows Server 2008 R2*") {
         Write-Log "[*] Windows 2008 R2 Detected"
-        return "Windows 2008 R2"
+        $status.msg = "Windows 2008 R2"
 
 	} else {
         # No case triggered, Exit Script
-		Write-Log ("[!] Unsupported OS" + $OSinfo.Version + " " + $OSinfo.OperatingSystemSKU + " (" + $OSinfo.Caption + ")") "FATAL"
-		
-		Exit
-	}
+        Write-Log ("[!] Unsupported OS" + $OSinfo.Version + " " + $OSinfo.OperatingSystemSKU + " (" + $OSinfo.Caption + ")") "ERROR"
+        $status.code = "ERROR"
+        $status.msg = "[!] Unsupported OS" + $OSinfo.Version + " " + $OSinfo.OperatingSystemSKU + " (" + $OSinfo.Caption + ")"
+    }
+    Return $status
 }
 
+
+#Check runas Admin & Set ExecutionPolicy
+Function Get-RunningPriv(){
+    $currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+    # Write-Host ($currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))
+
+    # status
+    $status = "" | Select-Object -Property code, msg
+
+    if(! ($currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))){
+        Write-Log "[!] Please runas NT auth/system or admin" "ERROR"
+        $status.code = "ERROR"
+        $status.msg = "[!] Please runas NT auth/system or admin"
+    } else {
+        $status.code = "SUCCESS"
+        $status.msg = ""
+        set-executionpolicy bypass -scope Process -Force
+    }
+    Return $status
+}
+
+## Get Active User Session ID for pop up reboot msg
 Function Get-ActiveSessions{
     Param(
         [Parameter(
@@ -401,37 +428,16 @@ Function Get-ActiveSessions{
     }
 }
 
-## Install-Windows10 (Tested)
-Function Install-Windows10{
-    Write-Log "[+] Handling Windows 10 Onboard Script Now"
-    $OnboardingPackageScriptPath = $global:Win10_OnboardingPackageScriptName
-    $OnboardingPackageZipPath = $global:Win10_OnboardingPackageZipName
-	# Execute Onboard script
-	if (Test-Path "filesystem::$($OnboardingPackageScriptPath)"){
-		try{
-			Write-Log "[+] Onboarding script detected, proceed with onboarding"
-			Start-Process -FilePath ($OnboardingPackageScriptPath) -Wait -Verb RunAs
-			Write-Log "[*] Onboarding completed" "SUCCESS"
-		} catch {
-			Write-Log "[!] Error while trying to onboard the machine to MDATP" "ERROR"
-			Write-Log $_ "ERROR"
-			Exit
-		}
-	} elseif (Test-Path "filesystem::$($OnboardingPackageZipPath)"){
-		try{
-			Write-Log "[+] Onboarding package detected, proceed with onboarding"
-			Expand-Archive -Path $OnboardingPackageZipPath -DestinationPath "$($Scriptdir)\Win10" -Force
-			Start-Process -FilePath ($OnboardingPackageScriptPath) -Wait -Verb RunAs
-			Write-Log "[*] Onboarding completed" "SUCCESS"
-		} catch {
-			Write-Log "[!] Error while trying to onboard the machine to MDATP" "ERROR"
-			Write-Log $_ "ERROR"
-			Exit
-		}
-	} else{
-        Write-Log "[!] No Onboarding package or script in share drive" "ERROR"
-    }
-}
+
+
+
+####################################################################################################################
+#
+# Deployment Functions
+#
+####################################################################################################################
+
+
 
 
 ## Install-Windows08R2 (Tested)
@@ -439,6 +445,10 @@ Function Install-Windows2008R2{
     # https://docs.microsoft.com/en-us/windows/security/threat-protection/microsoft-defender-atp/configure-server-endpoints#windows-server-2008-r2-sp1-windows-server-2012-r2-and-windows-server-2016
 
     Write-Log "[+] Handling Windows 2008 R2 Onboard Now"
+
+    $status = "" | Select-Object -Property code, msg
+    $status.code = "SUCCESS"
+
     # Step : Check SP1 and NET FRAMEWORK installed
     #Check if Windows 2008 R2 server is patched with service pack 1
     if ([System.Environment]::OSVersion.ServicePack -ne 'Service Pack 1'){
@@ -451,7 +461,9 @@ Function Install-Windows2008R2{
         Start-Sleep -s 600 -ErrorAction SilentlyContinue 
         Write-Log "[+] After waiting 12 mins, assumed Win08R2 SP1 installed" "INFO"
         #>
-        Exit
+        $status.code = "ERROR"
+        $status.msg = "[!] Windows 2008 R2 Service Pack 1 not installed"
+        return $status
     } else {
         Write-Log "[+] Detected 08R2 SP1 already installed" "INFO"
     }
@@ -472,7 +484,9 @@ Function Install-Windows2008R2{
         Start-Sleep -s 60 -ErrorAction SilentlyContinue 
         Write-Log "[+] After waiting 1 min, assumed .NET 4.5 installed" "INFO"
         #>
-        Exit
+        $status.code = "ERROR"
+        $status.msg = "[!] .Net Framework 4 Not Installed.  Install .Net Framework 4.5"
+        return $status
     }
 
     # Step : Install required patch
@@ -491,7 +505,7 @@ Function Install-Windows2008R2{
     }
     else #Return error Code 1 if the missing KB4074598 could not be installed 
     {
-        Write-Log "Not for KB4074598, terminating..." "Error"
+        Write-Log "[!] KB4074598 not installed" "Error"
         <#
         Write-Log "[+] Installing KB4074598..." "INFO"
  
@@ -499,7 +513,9 @@ Function Install-Windows2008R2{
         Start-Sleep -s 60 -ErrorAction SilentlyContinue 
         Write-Log "[+] After waiting 1 min, assumed KB4074598 installed" "INFO"
         #>
-        Exit
+        $status.code = "ERROR"
+        $status.msg = "[!] KB4074598 not installed"
+        return $status
     }
 
     # Try install Custpomer_Experience and Diagnostic_Telemetry_Update if needed. 
@@ -512,14 +528,16 @@ Function Install-Windows2008R2{
     }
     else  #Return error Code 1 if the missing KB3080149 could not be installed 
     {
-        Write-Log "[!] KB3080149 could not be installed, terminating" "ERROR"
+        Write-Log "[!] KB3080149 not installed" "ERROR"
         <#
         Write-Log "[+] Installing KB3080149..." "INFO"
         wusa $global:08R2_SP1_KB3080149_Path /quiet /norestart | Out-Null
         Start-Sleep -s 60 -ErrorAction SilentlyContinue
         Write-Log "[+] After waiting 1 min, assumed KB3080149 installed" "INFO"
         #>
-        Exit
+        $status.code = "ERROR"
+        $status.msg = "[!] KB3080149 not installed"
+        return $status
     }
 
     # Try install Update for SHA2
@@ -545,7 +563,9 @@ Function Install-Windows2008R2{
             #>
 
         }
-        Exit
+        $status.code = "ERROR"
+        $status.msg = "[!] SHA2 Not Installed. Please Install KB4474419,KB4490628"
+        return $status
     }
 
     # Step : Install Configure SCEP
@@ -565,19 +585,6 @@ Function Install-Windows2008R2{
     } else {
         Write-Log "[!] Already Installed SCEP" "SUCCESS"
     }
-
-    # Step : MMA Setup
-    Write-Log "[+] MMA installing..." "INFO"
-    & $global:MMA_installer_Path /qn NOAPM=1 ADD_OPINSIGHTS_WORKSPACE=1 OPINSIGHTS_WORKSPACE_AZURE_CLOUD_TYPE=0 OPINSIGHTS_WORKSPACE_ID=$workspaceId OPINSIGHTS_WORKSPACE_KEY=$workspaceKey AcceptEndUserLicenseAgreement=1 | Out-Null
-    Start-Sleep -s 120 -ErrorAction SilentlyContinue
-    Write-Log "[+] After waiting 3 mins, assumed MMA installed" "INFO"
-    
-    $mma = New-Object -ComObject 'AgentConfigManager.MgmtSvcCfg' -ErrorAction SilentlyContinue
-    $mma.AddCloudWorkspace($workspaceId, $workspaceKey)
-    $mma.ReloadConfiguration()
-    Write-Log "[+] MMA Setup End" "INFO"
-    Start-Sleep -s 10 -ErrorAction SilentlyContinue
-    Write-Log "[+] After waiting 10s, assumed MMA configured" "INFO"
 
     # Step : MMA Setup
     $MDATP = Get-ItemProperty "HKLM:SOFTWARE\Microsoft\Windows Advanced Threat Protection\Status"
@@ -617,6 +624,9 @@ Function Install-Windows2008R2{
         Write-Log "[*] MMA OnboardingState OK" "SUCCESS"
     } else {
         Write-Log "[!] MMA OnboardingState Maybe Failed, need to reboot and double check" "Error"
+        $status.code = "ERROR"
+        $status.msg = "[!] MMA OnboardingState Maybe Failed, need to reboot and double check"
+        return $status
     }
 
 }
@@ -625,6 +635,10 @@ Function Install-Windows2008R2{
 ## Install-Windows2012R2
 Function Install-Windows2012R2{
     # https://docs.microsoft.com/en-us/windows/security/threat-protection/microsoft-defender-atp/configure-server-endpoints
+    Write-Log "[+] Handling Windows 2012 R2 Onboarding Now"
+
+    $status = "" | Select-Object -Property code, msg
+    $status.code = "SUCCESS"
 
     # Step: DotNet 
     ## Check if .Net Framework >=4.5 and install .Net Framework 4.8 if needed
@@ -643,6 +657,9 @@ Function Install-Windows2012R2{
         Start-Sleep -s 60 -ErrorAction SilentlyContinue 
         Write-Log "[+] After waiting 1 min, assumed .NET 4.5 installed" "INFO"
         #>
+        $status.code = "ERROR"
+        $status.msg = "[!] .Net Framework 4 Not Installed.  Install .Net Framework 4.5"
+        return $status
     }
 
     # Step : Install required patch
@@ -668,10 +685,14 @@ Function Install-Windows2012R2{
         # wusa $global:2012R2_KB3080149_Path /quiet /norestart | Out-Null
         # Start-Sleep -s 10
         # Write-Log "[+] Installed KB3080149" "INFO"
-        Exit
+        $status.code = "ERROR"
+        $status.msg = "[+] need to Install KB3080149..."
+        return $status
     } else {
         Write-Log "KB3080149 could not be installed or Prerequisites (KB2919355) status is unknown" "ERROR"
-        Exit
+        $status.code = "ERROR"
+        $status.msg = "KB3080149 could not be installed or Prerequisites (KB2919355) status is unknown"
+        return $status
     }
 
     # Step : Install Configure SCEP
@@ -730,6 +751,9 @@ Function Install-Windows2012R2{
         Write-Log "[*] MMA OnboardingState OK" "SUCCESS"
     } else {
         Write-Log "[!] MMA OnboardingState Maybe Failed, need to reboot and double check" "Error"
+        $status.code = "ERROR"
+        $status.msg = "[!] MMA OnboardingState Maybe Failed, need to reboot and double check"
+        return $status
     }
 
 }
@@ -738,6 +762,10 @@ Function Install-Windows2012R2{
 ## Install-Windows2016 (Tested)
 Function Install-Windows2016{
     # https://docs.microsoft.com/en-us/windows/security/threat-protection/microsoft-defender-atp/configure-server-endpoints
+    Write-Log "[+] Handling Windows 2016 Onboarding Now"
+
+    $status = "" | Select-Object -Property code, msg
+    $status.code = "SUCCESS"
 
     # Step: DotNet 
     ## Check if .Net Framework >=4.5 and install .Net Framework 4.8 if needed
@@ -756,7 +784,9 @@ Function Install-Windows2016{
         # Start-Sleep -s 60 -ErrorAction SilentlyContinue 
         # Write-Log "[+] After waiting 1 min, assumed .NET 4.5 installed" "INFO"
         #>
-        Exit
+        $status.code = "ERROR"
+        $status.msg = "[!] .Net Framework 4 Not Installed.  Install .Net Framework 4.5"
+        return $status
     }
 
     # Step : Windows Defender
@@ -780,6 +810,7 @@ Function Install-Windows2016{
                 if ($WDAVInstall.RestartNeeded -eq "Yes") { 
                     Write-Log "[!] WDAV Restart Needed" "WARN"
                 }
+                Restart-Service -Name windefend
             }
         } else {
             Start-Service -Name windefend
@@ -790,14 +821,15 @@ Function Install-Windows2016{
             if (($WUSetting -eq "3") -or ($WUSetting -eq "4")) {
                 Write-Log "[+] Launching security intelligence updates"
                 Update-MPSignature -UpdateSource MicrosoftUpdateServer
-                
             }
-
         }
     }
     catch {
         Write-Log "[!] Error installing or updating MDAV" "ERROR"
         Write-Log $_ "ERROR"
+        $status.code = "ERROR"
+        $status.msg = "[!] Error installing or updating MDAV"
+        return $status
     }
 
 
@@ -814,7 +846,9 @@ Function Install-Windows2016{
         Write-Log "[!] SUCCESS : Windows Defender Signature Updated" "SUCCESS"
     } else {
         Write-Log "[!] Failed : Windows Defender Signature Update Component Check Failed, need to check Windows Defender status" "ERROR"
-        Exit
+        $status.code = "ERROR"
+        $status.msg = "[!] Failed : Windows Defender Signature Update Component Check Failed, need to check Windows Defender status"
+        return $status
     }
 
     # Step : MMA Setup
@@ -837,7 +871,10 @@ Function Install-Windows2016{
         Write-Log "[*] MMA OnboardingState OK" "SUCCESS"
     } else {
         Write-Log "[!] MMA OnboardingState Maybe Failed, need to reboot and double check" "Error"
+        $status.code = "ERROR"
+        $status.msg = "[!] MMA OnboardingState Maybe Failed, need to reboot and double check"
     }
+    return $status
 
 }
 
@@ -845,6 +882,10 @@ Function Install-Windows2016{
 ## Install-Windows2019 (Tested)
 Function Install-Windows2019{
     Write-Log "[+] Handling Windows 2019 Onboard Script Now"
+
+    $status = "" | Select-Object -Property code, msg
+    $status.code = "SUCCESS"
+
     $OnboardingPackageScriptPath = $global:Win2019_OnboardingPackageScriptName
     $OnboardingPackageZipPath = $global:Win2019_OnboardingPackageZipName
 	# Execute Onboard script
@@ -856,8 +897,8 @@ Function Install-Windows2019{
 		} catch {
 			Write-Log "[!] Error while trying to onboard the machine to MDATP" "ERROR"
 			Write-Log $_ "ERROR"
-			
-			Exit
+            $status.code = "ERROR"
+            $status.msg = "[!] Error while trying to onboard the machine to MDATP"
 		}
 	} elseif (Test-Path "filesystem::$($OnboardingPackageZipPath)"){
 		try{
@@ -868,14 +909,58 @@ Function Install-Windows2019{
 		} catch {
 			Write-Log "[!] Error while trying to onboard the machine to MDATP" "ERROR"
 			Write-Log $_ "ERROR"
-			
-			Exit
+            $status.code = "ERROR"
+            $status.msg = "[!] Error while trying to onboard the machine to MDATP"
 		}
 	} else{
         Write-Log "[!] No Onboarding package or script in share drive" "ERROR"
-		
+        $status.code = "ERROR"
+        $status.msg = "[!] No Onboarding package or script in share drive"
     }
+    return $status
 }
+
+## Install-Windows10 (Tested)
+Function Install-Windows10{
+    Write-Log "[+] Handling Windows 10 Onboard Script Now"
+
+    $status = "" | Select-Object -Property code, msg
+    $status.code = "SUCCESS"
+
+    $OnboardingPackageScriptPath = $global:Win10_OnboardingPackageScriptName
+    $OnboardingPackageZipPath = $global:Win10_OnboardingPackageZipName
+	# Execute Onboard script
+	if (Test-Path "filesystem::$($OnboardingPackageScriptPath)"){
+		try{
+			Write-Log "[+] Onboarding script detected, proceed with onboarding"
+			Start-Process -FilePath ($OnboardingPackageScriptPath) -Wait -Verb RunAs
+			Write-Log "[*] Onboarding completed" "SUCCESS"
+		} catch {
+			Write-Log "[!] Error while trying to onboard the machine to MDATP" "ERROR"
+			Write-Log $_ "ERROR"
+            $status.code = "ERROR"
+            $status.msg = "[!] Error while trying to onboard the machine to MDATP"
+		}
+	} elseif (Test-Path "filesystem::$($OnboardingPackageZipPath)"){
+		try{
+			Write-Log "[+] Onboarding package detected, proceed with onboarding"
+			Expand-Archive -Path $OnboardingPackageZipPath -DestinationPath "$($Scriptdir)\Win10" -Force
+			Start-Process -FilePath ($OnboardingPackageScriptPath) -Wait -Verb RunAs
+			Write-Log "[*] Onboarding completed" "SUCCESS"
+		} catch {
+			Write-Log "[!] Error while trying to onboard the machine to MDATP" "ERROR"
+            Write-Log $_ "ERROR"
+            $status.code = "ERROR"
+            $status.msg = "[!] Error while trying to onboard the machine to MDATP"
+		}
+	} else{
+        Write-Log "[!] No Onboarding package or script in share drive" "ERROR"
+        $status.code = "ERROR"
+        $status.msg = "[!] No Onboarding package or script in share drive"
+    }
+    return $status
+}
+
 
 ## Run a detection test
 Function Test-Detection{
@@ -889,27 +974,27 @@ Function Test-Detection{
 #
 ####################################################################################################################
 
-#0. Check runas Admin & Set ExecutionPolicy
-    $currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
-    # Write-Host ($currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))
-    if(! ($currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))){
-        Write-Log "[!] Please runas NT auth/system or admin" "ERROR"
-        Exit
-    }
-    set-executionpolicy bypass -scope Process -Force
-
-
-#1. since runas NT auth/system, will create C:\Deploy_MDATP_TEMP\deploy_log.txt for debug use
-    # $hardcode_log_path = "C:\Deploy_MDATP_TEMP\deploy_log.txt"
+Function Main(){
+#0. Check log path exist & create log files
     $hostname = (hostname)
-    if (!(Test-Path ("$Scriptdir\$($Log_folder)\"))){
-        New-Item -Path $Scriptdir -Name $Log_folder -ItemType "directory"
+    
+    if (!(Test-Path ($global:Log_folder))){
+        Exit
+        # New-Item -Path $global:Log_folder -Name $Log_folder -ItemType "directory"
     }
-    $Log_folder = "$Scriptdir\$($Log_folder)\"
+
     $Date_str = (Get-Date).ToUniversalTime().toString("yyyy-MM-dd_HHmmss") + "_UTC"
     $log_file_name = "$($hostname)_mdatp_deploy_log_$($Date_str).csv"
     New-Item -Path $Log_folder -Name $log_file_name -ItemType "file"
     $global:logfile = "$($Log_folder)\$($log_file_name)"
+
+
+#1. Check runas Admin & Set ExecutionPolicy
+    $status = Get-RunningPriv
+    if($status.code -eq "ERROR"){
+        rename-item $global:logfile -newname "$($Log_folder)\ERROR_$($log_file_name)"
+        Exit
+    }
 
 
 #2. Set Script Directory to share drive
@@ -921,6 +1006,7 @@ Function Test-Detection{
         Write-Log "[+] Share drive $($share_drive_path) existed"
     } else{
         Write-Log "[+] Share drive $($share_drive_path) not existed" "Error"
+        rename-item $global:logfile -newname "$($Log_folder)\ERROR_$($log_file_name)"
         Exit
     }
 
@@ -931,15 +1017,16 @@ Function Test-Detection{
         if($MATPstatus -eq 1){
             Write-Log "[!] Onboarded status detected. Please check the onboarding on MDATP Security Center" "SUCCESS"
             Write-Log "[!] Script Finished" "SUCCESS"
+            rename-item $global:logfile -newname "$($Log_folder)\SUCCESS_$($log_file_name)"
             Exit
         } else {
             Write-Log "[!] MDATP reg key found but no offboarded status detected!" "ERROR"
             Write-Log "[+] Now checking patches and applications" "DEBUG"
         }
     }else{
-        Write-Log "[*] No Onboard key detected. now using following Powershell command to have a look." "ERROR"
+        Write-Log "[*] No Onboard key detected. Now using following Powershell command to have a look." "ERROR"
         Write-Log "[*] If there is not output of reg key of Windows Advanced Threat Protection. Assumed as not Offboarded!" "DEBUG"
-        Write-Log "[+] Powershell: Get-ItemProperty -Path 'HKLM:SOFTWARE\Microsoft\Windows Advanced Threat Protection\Status'" "DEBUG"
+        Write-Log "[+] Powershell: Get-ItemProperty -Path 'HKLM:SOFTWARE\Microsoft\Windows Advanced Threat Protection\Status' -- OUTPUT START" "DEBUG"
         $status_all = Get-ItemProperty -Path "HKLM:SOFTWARE\Microsoft\Windows Advanced Threat Protection\Status"
         if ($status_all) {
             Write-Log $status_all "DEBUG"
@@ -964,18 +1051,20 @@ Function Test-Detection{
             Write-Log "[!] Third party Anti-Virus Software Detected: Please remove $($AV_name)" "ERROR"
             Write-Log "[!] Uninstalling TrendMicro officescan now..." "ERROR"
             Start-Process -FilePath $global:Uninstall_Trendmicro_tool_path -ArgumentList ("-noinstall") -Wait -Verb runas
-            Start-Sleep -Seconds 60
-            Write-Log "[+] After waiting 60s, assumed TrendMicro officescan uninstalled" "INFO"
+            Start-Sleep -Seconds 30
+            Write-Log "[+] After waiting 30s, assumed TrendMicro officescan uninstalled" "INFO"
             # double confirm
             $thirdPartyAV = get-process -name $AVProcesses 2> $null
             if($thirdPartyAV){
                 Write-Log "[!] TrendMicro officescan Uninstall Process Failed" "Error"
+                rename-item $global:logfile -newname "$($Log_folder)\ERROR_$($log_file_name)"
+                Exit
             } else {
                 Write-Log "[!] TrendMicro officescan Uninstall Process Success" "Success"
             }
 		}
 	}else{
-        Write-Log "[+] Seems No Third party Anti-Virus Software Detected, process checking Anti-Virus"
+        Write-Log "[+] Seems No Third party Anti-Virus Software Detected"
     }
 
     # Make sure MDAV can be ran
@@ -989,25 +1078,36 @@ Function Test-Detection{
     Write-Log "[*] MDAV Regrisy keys Edited" "SUCCESS"
 
 
-
 #5. Check Windows Version and install mdatp onboard
     $OSinfo = Get-WmiObject -Class Win32_OperatingSystem
 	$OSCaption = $OSinfo.Caption
-    $OSVersion = Check-Windows-Version $OSCaption
+    $status = Check-Windows-Version $OSCaption
+    if ($status.code -eq "SUCCESS"){
+        $OSVersion = $status.msg
+    } else {
+        rename-item $global:logfile -newname "$($Log_folder)\ERROR_$($log_file_name)"
+        Exit
+    }
+    
     if ($OSVersion -eq "Windows 10"){
-        Install-Windows10
+        $deploy_status = Install-Windows10
     } elseif ($OSVersion -eq "Windows 2019") {
-        Install-Windows2019
+        $deploy_status = Install-Windows2019
     } elseif ($OSVersion -eq "Windows 2016") {
-        Install-Windows2016
+        $deploy_status = Install-Windows2016
     } elseif ($OSVersion -eq "Windows 2012 R2") {
-        Install-Windows2012R2
+        $deploy_status = Install-Windows2012R2
     } elseif ($OSVersion -eq "Windows 2008 R2") {
-        Install-Windows2008R2
+        $deploy_status = Install-Windows2008R2
+    }
+
+    Start-Sleep 10
+    if ($deploy_status.code -eq "ERROR"){
+        rename-item $global:logfile -newname "$($Log_folder)\ERROR_$($log_file_name)"
+        Exit
     }
 
 
-<#
 #5. Optional: sample sharing used in the deep analysis feature
     # Recommanded to copy them to domain controller to support & manage the deep analysis function!
     #5.1 POC in copy to local drive
@@ -1015,72 +1115,95 @@ Function Test-Detection{
 	{
 		Write-Log "[+] Copying ADMX Files"
 		Copy-Item $global:ADMXSourceFolder\* $global:ADMXDestinationFolder -Recurse -Force
-		Write-Log "[*] Finishing Copying ADMX Files"
+		Write-Log "[!] Finished Copying ADMX Files" "SUCCESS"
 	}
 	else
 	{
-		Write-Log "[!] Failed : XCOPY Policy ADMX Failed" "ERROR"
+        Write-Log "[!] Failed : COPY Policy ADMX Failed, no additonal GPO template exist" "ERROR"
+        rename-item $global:logfile -newname "$($Log_folder)\ERROR_$($log_file_name)"
+        Exit
 	}
 
 
 #5.1 Recommanded: GPO
 	# Suggested to deploy as Domain GPO
 	# Please check: 
-	#	- PPT recommanded GPO
+	#	- HTML recommanded GPO
 	#	- https://docs.microsoft.com/en-us/windows/security/threat-protection/microsoft-defender-atp/configure-endpoints-gp
     # Recommanded to change Group Policy to manage endpoint protection configuration!!! local policy just POC
     # This POC havent config ASR attack surface reduction
     #5.1.1 POC in edit local policy
-    if (dir $global:DefenderPolicyPath){
-        $lgpo_path = "$($global:DefenderPolicyPath)"
-        if(dir $lgpo_path){
-            & "$($global:LGPO_EXE_Path)\LGPO.exe" @('/g', "$($global:DefenderPolicyPath)", '/quiet')
-            Write-Log "[!] LGPO Updated" "SUCCESS"
-        } else {
-            Write-Log "[!] No Policy folder in share drive" "ERROR"
+    if (($OSVersion -eq "Windows 10") -or ($OSVersion -eq "Windows 2019") -or ($OSVersion -eq "Windows 2016")){
+        if (dir $global:DefenderPolicyPath){
+            $lgpo_path = "$($global:DefenderPolicyPath)"
+            if(dir $lgpo_path){
+                & "$($global:LGPO_EXE_Path)\LGPO.exe" @('/g', "$($global:DefenderPolicyPath)", '/q')
+                Write-Log "[!] LGPO Updated" "SUCCESS"
+            } else {
+                Write-Log "[!] No Policy folder in share drive" "ERROR"
+                rename-item $global:logfile -newname "$($Log_folder)\ERROR_$($log_file_name)"
+                Exit
+            }
+        }else{
+            Write-Log "[!] No LGPO folder in share drive" "ERROR"
+            rename-item $global:logfile -newname "$($Log_folder)\ERROR_$($log_file_name)"
+            Exit
         }
-    }else{
-        Write-Log "[!] No LGPO folder in share drive" "ERROR"
     }
-#>
 
 #6. double check the MDATP status
-$MATPstatus = (Get-ItemProperty -Path "HKLM:SOFTWARE\Microsoft\Windows Advanced Threat Protection\Status")."OnboardingState"
-if ($MATPstatus) {
-    if($MATPstatus -eq 1){
-        Write-Log "[!] Onboarded status detected. Please check the onboarding on MDATP Security Center" "SUCCESS"
-    } else {
-        Write-Log "[!] MDATP reg key found but no offboarded status detected!" "ERROR"
-        Write-Log "[+] Now checking patches and applications" "DEBUG"
+    $MATPstatus = (Get-ItemProperty -Path "HKLM:SOFTWARE\Microsoft\Windows Advanced Threat Protection\Status")."OnboardingState"
+    if ($MATPstatus) {
+        if($MATPstatus -eq 1){
+            Write-Log "[!] Onboarded status detected. Please check the onboarding on MDATP Security Center" "SUCCESS"
+        } else {
+            Write-Log "[!] MDATP reg key found but no offboarded status detected!" "ERROR"
+            rename-item $global:logfile -newname "$($Log_folder)\ERROR_$($log_file_name)"
+            Exit
+        }
+    }else{
+        Write-Log "[!] No Onboard key detected. now using following Powershell command to have a look." "ERROR"
+        Write-Log "[*] If there is not output of reg key of Windows Advanced Threat Protection. Assumed as not Offboarded!" "DEBUG"
+        Write-Log "[+] Powershell: Get-ItemProperty -Path 'HKLM:SOFTWARE\Microsoft\Windows Advanced Threat Protection\Status'" "DEBUG"
+        $status_all = Get-ItemProperty -Path "HKLM:SOFTWARE\Microsoft\Windows Advanced Threat Protection\Status"
+        if ($status_all) {
+            Write-Log $status_all "DEBUG"
+        }
+        Write-Log "[+] Powershell: Get-ItemProperty -Path 'HKLM:SOFTWARE\Microsoft\Windows Advanced Threat Protection\Status' - OUTPUT END" "DEBUG"
+        Write-Log "[!] No Onboard key detected." "ERROR"
+        rename-item $global:logfile -newname "$($Log_folder)\ERROR_$($log_file_name)"
+        Exit
     }
-}else{
-    Write-Log "[*] No Onboard key detected. now using following Powershell command to have a look." "ERROR"
-    Write-Log "[*] If there is not output of reg key of Windows Advanced Threat Protection. Assumed as not Offboarded!" "DEBUG"
-    Write-Log "[+] Powershell: Get-ItemProperty -Path 'HKLM:SOFTWARE\Microsoft\Windows Advanced Threat Protection\Status'" "DEBUG"
-    $status_all = Get-ItemProperty -Path "HKLM:SOFTWARE\Microsoft\Windows Advanced Threat Protection\Status"
-    if ($status_all) {
-        Write-Log $status_all "DEBUG"
-    }
-    Write-Log "[+] Powershell: Get-ItemProperty -Path 'HKLM:SOFTWARE\Microsoft\Windows Advanced Threat Protection\Status' - OUTPUT END" "DEBUG"
-    Write-Log "[+] Now checking patches and applications" "DEBUG"
-}
 
 
-Write-Log "[!] Script Finished" "SUCCESS"
-Write-Log "[+] Launch: Test Detection Script" "DEBUG"
-Test-Detection
+#7. Launch test detection script
+    Write-Log "[+] Launch: Test Detection Script" "DEBUG"
+    Test-Detection
+
+
+#8. pop up reboot msg to active user session
+    if ($OSVersion -eq "Windows 10"){
+        $hostname = $env:computername
+        $sessions = Get-ActiveSessions $hostname
+        foreach($sess in $sessions){
+            if ($sess.State -eq "Active"){
+                Write-Log "[+] Get Active Desktop Session: $($sess.ID, $sess.SessionName, $sess.Type, $sess.UserName, $sess.ComputerName)" "DEBUG"
+                Write-Log "[+] Get Active Desktop Session ID: $($sess.ID)" "DEBUG"
+                cmd /c "$($Scriptdir)psexec.exe -accepteula -i $($sess.ID) cmd.exe /c `"$($Scriptdir)\msg.bat`" "
+                cmd /c "$($Scriptdir)psexec.exe -accepteula -i $($sess.ID) cmd.exe /c `"$($Scriptdir)\msg.bat`" "
+                Write-Log "[!] Trying pop up reboot msg!" "DEBUG"
+            }
+        }
+    }
+
 Write-Log "[*] Installation completed. Restart is required" "INFO"
-
-
-$hostname = $env:computername
-$sessions = Get-ActiveSessions $hostname
-foreach($sess in $sessions){
-    if ($sess.State -eq "Active"){
-        Write-Log "[+] Get Active Desktop Session: $($sess.ID, $sess.SessionName, $sess.Type, $sess.UserName, $sess.ComputerName)" "DEBUG"
-        Write-Log "[+] Get Active Desktop Session ID: $($sess.ID)" "DEBUG"
-        cmd /c "$($Scriptdir)psexec.exe -accepteula -i $($sess.ID) cmd.exe /c `"$($Scriptdir)\msg.bat`" "
-        cmd /c "$($Scriptdir)psexec.exe -accepteula -i $($sess.ID) cmd.exe /c `"$($Scriptdir)\msg.bat`" "
-        Write-Log "[!] Trying pop up reboot msg!" "DEBUG"
-    }
+rename-item $global:logfile -newname "$($Log_folder)\SUCCESS_$($log_file_name)"
 }
 
+####################################################################################################################
+#
+# Run
+#
+####################################################################################################################
+
+Main
